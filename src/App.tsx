@@ -27,7 +27,6 @@ function App() {
     fetchModels();
   }, []);
 
-
   async function askOllama() {
     const response = await invoke<string>('askollama', {
       question,

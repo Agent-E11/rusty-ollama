@@ -69,24 +69,37 @@ async fn askollama(question: String, models: String) -> Result<String, ApiError>
 
 /// Retrieves the list of models from Ollama API
 #[command]
-fn get_ollama_models() -> Result<ModelList, ApiError> {
-    let output = std::process::Command::new("ollama")
-        .arg("list")
-        .output()
-        .map_err(|e| ApiError::CommandError(e.to_string()))?;
+async fn get_ollama_models() -> Result<ModelList, ApiError> {
 
-    if !output.status.success() {
-        let error_message = String::from_utf8_lossy(&output.stderr).into_owned();
-        return Err(ApiError::CommandError(error_message));
+    let url = "http://localhost:11434/api/tags";
+    let client = Client::new();
+    let res = client.get(url)
+        .send()
+        .await
+        .map_err(ApiError::Network)?
+        .text()
+        .await
+        .map_err(ApiError::Network)?;
+
+    let json_value = serde_json::from_str::<serde_json::Value>(&res)
+        .map_err(ApiError::ParseError)?;
+    
+    let models_list = json_value["models"]
+        .as_array()
+        .ok_or(ApiError::ParseError(
+            serde_json::error::Error::custom("ollama API responded with incorrect format")
+        ))?;
+
+    let mut models = vec![];
+    for model in models_list {
+        models.push(model["name"]
+            .as_str()
+            .ok_or(ApiError::ParseError(
+                serde_json::error::Error::custom("ollama API responded with incorrect format")
+            ))?
+        );
     }
-
-    let models = String::from_utf8(output.stdout)
-        .map_err(|_| ApiError::ParseError(serde_json::error::Error::custom("Invalid UTF-8 sequence")))?
-        .lines()
-        .filter_map(|line| line.split_whitespace().next().map(ToString::to_string))
-        .collect();
-
-    Ok(ModelList { models })
+    Ok(ModelList { models:  models.iter().map(|&s| String::from(s)).collect() })
 }
 
 fn main() {
